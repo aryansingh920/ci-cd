@@ -91,4 +91,6 @@ kubectl port-forward svc/argocd-server -n argocd 8081:443
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
 
 
+kubectl rollout restart deployment my-next-app -n staging
+
 kubectl port-forward svc/nextjs-service -n staging 30080:80
