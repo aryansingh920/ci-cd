@@ -96,13 +96,7 @@ kubectl rollout restart deployment my-next-app -n staging
 kubectl port-forward svc/nextjs-service -n staging 30080:80
 
 
-# run local registry 
-docker run -d \
-  --name registry-browser \
-  --network kind \
-  -p 5052:8080 \
-  -e DOCKER_REGISTRY_URL=http://kind-registry:5000 \
-  klausmeyer/docker-registry-browser:latest
+
 
 docker stop registry-ui && docker rm registry-ui
 
@@ -111,16 +105,7 @@ docker stop registry-ui && docker rm registry-ui
 # 1. Stop and remove the current registry
 docker stop kind-registry && docker rm kind-registry
 
-# 2. Start it again with CORS headers enabled
-docker run -d \
-  -p 5001:5000 \
-  --restart=always \
-  --name kind-registry \
-  -e "REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-ALLOW-ORIGIN=['http://localhost:5052']" \
-  -e "REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-ALLOW-METHODS=['HEAD', 'GET', 'OPTIONS', 'DELETE']" \
-  -e "REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-ALLOW-HEADERS=['Authorization', 'Accept', 'Cache-Control', 'Raw-Control-Info', 'Content-Type']" \
-  -e "REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-EXPOSE-HEADERS=['Docker-Content-Digest']" \
-  registry:2
+
 
 # 3. Reconnect it to the kind network
 docker network connect kind kind-registry
@@ -129,12 +114,7 @@ docker network connect kind kind-registry
 
 docker stop registry-browser && docker rm registry-browser
 
-docker run -d \
-  --name registry-browser \
-  --network kind \
-  -p 5052:8080 \
-  -e DOCKER_REGISTRY_URL=http://kind-registry:5000 \
-  klausmeyer/docker-registry-browser:latest
+
 
 # Wait 5 seconds, then check if it's actually running
 docker logs registry-browser
