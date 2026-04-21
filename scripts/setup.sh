@@ -94,3 +94,86 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.pas
 kubectl rollout restart deployment my-next-app -n staging
 
 kubectl port-forward svc/nextjs-service -n staging 30080:80
+
+
+# run local registry 
+docker run -d \
+  --name registry-browser \
+  --network kind \
+  -p 5052:8080 \
+  -e DOCKER_REGISTRY_URL=http://kind-registry:5000 \
+  klausmeyer/docker-registry-browser:latest
+
+docker stop registry-ui && docker rm registry-ui
+
+
+
+# 1. Stop and remove the current registry
+docker stop kind-registry && docker rm kind-registry
+
+# 2. Start it again with CORS headers enabled
+docker run -d \
+  -p 5001:5000 \
+  --restart=always \
+  --name kind-registry \
+  -e "REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-ALLOW-ORIGIN=['http://localhost:5052']" \
+  -e "REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-ALLOW-METHODS=['HEAD', 'GET', 'OPTIONS', 'DELETE']" \
+  -e "REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-ALLOW-HEADERS=['Authorization', 'Accept', 'Cache-Control', 'Raw-Control-Info', 'Content-Type']" \
+  -e "REGISTRY_HTTP_HEADERS_ACCESS-CONTROL-EXPOSE-HEADERS=['Docker-Content-Digest']" \
+  registry:2
+
+# 3. Reconnect it to the kind network
+docker network connect kind kind-registry
+
+
+
+docker stop registry-browser && docker rm registry-browser
+
+docker run -d \
+  --name registry-browser \
+  --network kind \
+  -p 5052:8080 \
+  -e DOCKER_REGISTRY_URL=http://kind-registry:5000 \
+  klausmeyer/docker-registry-browser:latest
+
+# Wait 5 seconds, then check if it's actually running
+docker logs registry-browser
+
+
+docker run -d \
+  --name registry-browser \
+  --network kind \
+  -p 5052:8080 \
+  -e DOCKER_REGISTRY_URL=http://kind-registry:5000 \
+  -e SECRET_KEY_BASE=$(openssl rand -hex 64) \
+  klausmeyer/docker-registry-browser:latest
+
+
+kubectl create namespace production
+
+
+# Step 1 — Delete your current cluster
+kind delete cluster --name local-cicd   # replace local-cicd with your cluster name
+
+# Step 2 — Start a registry container on the kind network
+docker run -d --restart=always \
+  -p 5001:5000 \
+  --name kind-registry \
+  registry:2
+
+
+# Step 4 — Connect registry to kind network (if not already)
+docker network connect kind kind-registry
+
+# Step 5 — Recreate namespaces
+kubectl create namespace staging
+kubectl create namespace production
+
+
+kubectl describe pod -l app=nextjs -n staging
+
+
+kind load docker-image localhost:5001/my-next-app:build-10 --name local-cicd
+
+
+kubectl port-forward svc/nextjs-service -n production 30081:80 
