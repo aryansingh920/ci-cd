@@ -1,2 +1,0 @@
-nextjs-frontend/main
-nextjs-frontend_main_2
