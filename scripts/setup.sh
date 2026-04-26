@@ -235,70 +235,38 @@ kubectl logs -n istio-system deploy/istiod -f | grep -E "ready|forbidden|error|w
 
 
 
-kubectl apply -f - <<'EOF'
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: istiod-clusterrole
-rules:
-- apiGroups: [""]
-  resources: ["configmaps", "endpoints", "secrets", "services", "serviceaccounts", "namespaces", "pods", "nodes", "persistentvolumeclaims"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["apps"]
-  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["admissionregistration.k8s.io"]
-  resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
-  verbs: ["get", "list", "watch", "update", "patch"]
-- apiGroups: ["apiextensions.k8s.io"]
-  resources: ["customresourcedefinitions"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["networking.k8s.io"]
-  resources: ["ingresses", "ingressclasses"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["coordination.k8s.io"]
-  resources: ["leases"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["networking.istio.io", "security.istio.io", "extensions.istio.io", "telemetry.istio.io"]
-  resources: ["*"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["certificates.k8s.io"]
-  resources: ["certificatesigningrequests", "certificatesigningrequests/approval", "certificatesigningrequests/status"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["discovery.k8s.io"]
-  resources: ["endpointslices"]
-  verbs: ["get", "list", "watch"]
-- apiGroups: ["gateway.networking.k8s.io"]
-  resources: ["*"]
-  verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: istiod-clusterrolebinding
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: istiod-clusterrole
-subjects:
-- kind: ServiceAccount
-  name: istiod
-  namespace: istio-system
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: istio
-  namespace: istio-system
-data:
-  mesh: |
-    defaultConfig:
-      discoveryAddress: istiod.istio-system.svc:15012
-    enablePrometheusMerge: true
-  meshNetworks: 'networks: {}'
-EOF
-
 
 
 kubectl rollout restart deployment/istiod -n istio-system
 kubectl rollout status deployment/istiod -n istio-system
+
+
+kubectl label namespace staging istio-injection=enabled --overwrite
+kubectl get namespace staging --show-labels 
+
+
+kubectl rollout restart deployment/my-next-app -n staging
+kubectl get pods -n staging -w
+
+
+kubectl get mutatingwebhookconfiguration | grep istio
+
+# Apply directly first to test
+kubectl apply -f istio.yaml
+
+# Restart istiod to pick up webhook port
+kubectl rollout restart deployment/istiod -n istio-system
+kubectl rollout status deployment/istiod -n istio-system
+
+# Check inject endpoint is alive
+kubectl logs -n istio-system deploy/istiod --tail=20 | grep -i "inject\|webhook\|serving"
+
+# Restart your app to get sidecar injected
+kubectl rollout restart deployment/my-next-app -n staging
+kubectl get pods -n staging
+# Should show 2/2
+
+
+# Extract the CA cert Istiod generated
+kubectl get secret istio-ca-secret -n istio-system -o jsonpath='{.data.ca-cert\.pem}' 2>/dev/null \
+  || kubectl get configmap istio-ca-root-cert -n istio-system -o jsonpath='{.data.root-cert\.pem}' | base64 -w0
