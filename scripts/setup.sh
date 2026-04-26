@@ -184,3 +184,121 @@ kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.20/samp
 while true; do curl -s http://localhost:30080 > /dev/null; echo "Sent request to Staging..."; sleep 0.5; done
 
 kubectl port-forward svc/grafana 3000:3000 -n istio-system
+
+kubectl patch svc istiod -n istio-system -p '{"spec":{"ports":[{"name":"http-monitoring","port":8080,"targetPort":8080}]}}'
+
+# Find the process ID (PID) using port 3000 and kill it
+lsof -i tcp:3000 | awk 'NR!=1 {print $2}' | xargs kill -9
+
+sudo lsof -t -i:3000 | xargs kill -9
+
+kubectl patch configmap kiali -n istio-system --type merge -p '{"data":{"kiali.yaml":"external_services:\n  istio:\n    istio_sidecar_injector_config_map: istio-sidecar-injector\n    istiod_deployment_name: istiod\n    url_service_version: http://istiod.istio-system.svc:15014/version\n"}}'
+
+kubectl label pod -l istio=pilot -n istio-system app=istiod
+
+kubectl get svc -n istio-system
+
+kubectl patch svc istiod -n istio-system --type=json -p='[{"op": "add", "path": "/spec/ports/-", "value": {"name": "status-port", "port": 15014, "targetPort": 15014}}]'
+
+kubectl rollout restart deployment kiali -n istio-system
+
+kubectl label deployment istiod -n istio-system app=istiod istio=pilot --overwrite
+
+kubectl patch configmap kiali -n istio-system --type merge -p '{"data":{"kiali.yaml":"external_services:\n  istio:\n    istiod_deployment_name: istiod\n    url_service_version: http://istiod.istio-system.svc:15014/version\n    discovery_interface: \"kubernetes\"\n"}}'
+
+
+kubectl patch deployment istiod -n istio-system --type='json' -p='[{"op": "add", "path": "/spec/template/spec/containers/0/ports/-", "value": {"containerPort": 15014, "protocol": "TCP"}}]'
+
+kubectl logs -l istio=pilot -n istio-system --tail=20
+
+kubectl port-forward svc/kiali 20001:20001 -n istio-system
+
+kubectl port-forward svc/istiod 15014:15014 -n istio-system
+
+kubectl port-forward svc/prometheus 9090:9090 -n istio-system
+
+
+kubectl patch configmap kiali -n istio-system --type merge -p '{"data":{"kiali.yaml":"external_services:\n  prometheus:\n    url: http://prometheus.istio-system.svc:9090\n"}}'
+kubectl rollout restart deployment kiali -n istio-system
+
+
+
+kubectl apply -f istio.yaml
+
+# Force Istiod to restart with the new RBAC + ConfigMap
+kubectl rollout restart deployment/istiod -n istio-system
+kubectl rollout status deployment/istiod -n istio-system
+
+# Watch logs — should no longer show "forbidden" or "waiting for sync"
+kubectl logs -n istio-system deploy/istiod -f | grep -E "ready|forbidden|error|warn|serving"
+
+
+
+
+kubectl apply -f - <<'EOF'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: istiod-clusterrole
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "endpoints", "secrets", "services", "serviceaccounts", "namespaces", "pods", "nodes", "persistentvolumeclaims"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+  verbs: ["get", "list", "watch", "update", "patch"]
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "ingressclasses"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["coordination.k8s.io"]
+  resources: ["leases"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["networking.istio.io", "security.istio.io", "extensions.istio.io", "telemetry.istio.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["certificates.k8s.io"]
+  resources: ["certificatesigningrequests", "certificatesigningrequests/approval", "certificatesigningrequests/status"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["gateway.networking.k8s.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: istiod-clusterrolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: istiod-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: istiod
+  namespace: istio-system
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio
+  namespace: istio-system
+data:
+  mesh: |
+    defaultConfig:
+      discoveryAddress: istiod.istio-system.svc:15012
+    enablePrometheusMerge: true
+  meshNetworks: 'networks: {}'
+EOF
+
+
+
+kubectl rollout restart deployment/istiod -n istio-system
+kubectl rollout status deployment/istiod -n istio-system
