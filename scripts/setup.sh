@@ -157,3 +157,30 @@ kind load docker-image localhost:5001/my-next-app:build-10 --name local-cicd
 
 
 kubectl port-forward svc/nextjs-service -n production 30081:80 
+
+
+
+
+kubectl create namespace istio-system
+
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.20/samples/addons/extras/prometheus-operator.yaml
+# (Or more simply, the minimal Istio manifests)
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.20/manifests/charts/base/crds/crd-all.gen.yaml
+
+
+kubectl rollout restart deployment my-next-app -n staging
+
+
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.20/samples/addons/prometheus.yaml
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.20/samples/addons/kiali.yaml
+
+
+kubectl port-forward svc/kiali 20001:20001 -n istio-system
+
+
+kubectl apply -f https://raw.githubusercontent.com/istio/istio/release-1.20/samples/addons/grafana.yaml
+
+
+while true; do curl -s http://localhost:30080 > /dev/null; echo "Sent request to Staging..."; sleep 0.5; done
+
+kubectl port-forward svc/grafana 3000:3000 -n istio-system
